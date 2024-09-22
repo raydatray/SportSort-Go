@@ -9,6 +9,7 @@
         "course_types.sql",
         "registrations.sql",
         "reviews.sql",
+        "sessions.sql",
         "users.sql"
       ],
       "engine": "postgresql",

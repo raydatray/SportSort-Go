@@ -21,10 +21,18 @@ func loadUserRoutes(router *http.ServeMux, queries *db.Queries) {
 
 	router.HandleFunc("GET /users", handler.getAll)
 	router.HandleFunc("GET /instructors", handler.getInstructors)
+	router.HandleFunc("GET /users/filter", handler.getUsersWithFilter)
 
 	router.HandleFunc("POST /customers", handler.createCustomer)
 	router.HandleFunc("POST /instructors", handler.createInstructor)
 	router.HandleFunc("POST /owners", handler.createOwner)
+
+	router.HandleFunc("PUT /customers/{id}", handler.updateCustomer)
+	router.HandleFunc("PUT /", handler.)
+
+	router.HandleFunc("DELETE /customers", handler.softDeleteCustomer)
+	router.HandleFunc("DELETE /admin/{id}", handler.softDeleteAdmin)
+	router.HandleFunc("DELETE /users/{id}", handler.confirmDelete)
 }
 
 type User struct {
@@ -32,11 +40,12 @@ type User struct {
 	Email    string      `json:"email"`
 	Password string      `json:"password"`
 	Type     db.UserType `json:"userType"`
-	Center   *int        `json:"centerId,omitempty"`
+	Center   *int        `json:"centerId, omitempty"`
 }
 
+//Endpoint to allow customers to create new accounts
 func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
-	var user User
+	var user db.CreateUserParams
 	err := json.NewDecoder(r.Body).Decode(&user)
 
 	if err != nil {
@@ -48,7 +57,12 @@ func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid user type for customer creation", http.StatusBadRequest)
 		return
 	}
-	//Write to DB here
+
+	_, err := h.queries.CreateUser(ctx, user)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	log.Println("Received request to create a custmer")
@@ -56,7 +70,7 @@ func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createInstructor(w http.ResponseWriter, r *http.Request) {
-	var user User
+	var user db.CreateUserParams
 	err := json.NewDecoder(r.Body).Decode(&user)
 
 	if err != nil {
@@ -68,6 +82,8 @@ func (h *Handler) createInstructor(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid user type for instructor creation", http.StatusBadRequest)
 		return
 	}
+
+	_, err := h.queries.CreateUser(ctx, user)
 
 	w.WriteHeader(http.StatusCreated)
 	log.Println("Received request to create a instructor")
@@ -98,6 +114,7 @@ func (h *Handler) createOwner(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Owner created"))
 }
 
+///Endpoint to list all users regardless of type
 func (h *Handler) getAll(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -113,6 +130,37 @@ func (h *Handler) getAll(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(users)
 }
 
+//Endpoint to list all users with filters for admin
+func (h *Handler) getUsersWithFilter(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	filterParams, err := ParseFilterUsersParams(r)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	dbParams := db.FilterUsersParams{
+		Column1: filterParams.Types,
+		Column2: filterParams.SportCenterIDs,
+	}
+
+	if filterParams.Deleted != nil {
+		dbParams.Column3 = *filterParams.Deleted
+	}
+
+	users, err := h.queries.FilterUsers(ctx, dbParams)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(users)
+}
+
+
 func (h *Handler) getInstructors(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -126,4 +174,40 @@ func (h *Handler) getInstructors(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(instructors)
+}
+
+//Endpoint that allows a customer to update their own account
+func (h *Handler) updateCustomer(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	_, err := h.queries.UpdateUser(ctx, db.)
+
+
+}
+
+//Endpoint that allows admin or owner users to update other users
+func (h *Handler) updateOther(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	_, err := h.queries.UpdateUser(ctx, a)
+}
+
+//Endpoint that allows a user to delete their own account
+//
+func (h *Handler) softDeleteCustomer(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+}
+
+//Endpoint that allows admin and owner users to delete other users
+//
+func (h *Handler) softDeleteAdmin(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+}
+
+//Endpoint that allows for the hard deletion of accounts by admins
+func(h *Handler) confirmDelete(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
 }

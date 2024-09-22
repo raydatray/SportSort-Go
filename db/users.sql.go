@@ -11,9 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createUser = `-- name: CreateUser :one
-INSERT INTO users (name, email, password, type, sport_center_id)
-VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, password, type, sport_center_id
+const confirmDeleteUser = `-- name: ConfirmDeleteUser :exec
+DELETE FROM users WHERE id = $1 AND deleted = true
+`
+
+// Deletes a user
+func (q *Queries) ConfirmDeleteUser(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, confirmDeleteUser, id)
+	return err
+}
+
+const createUser = `-- name: CreateUser :exec
+INSERT INTO users (name, email, password, type, sport_center_id, deleted)
+VALUES ($1, $2, $3, $4, $5, false)
 `
 
 type CreateUserParams struct {
@@ -25,38 +35,62 @@ type CreateUserParams struct {
 }
 
 // Creates a new user
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, createUser,
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
+	_, err := q.db.Exec(ctx, createUser,
 		arg.Name,
 		arg.Email,
 		arg.Password,
 		arg.Type,
 		arg.SportCenterID,
 	)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Email,
-		&i.Password,
-		&i.Type,
-		&i.SportCenterID,
-	)
-	return i, err
-}
-
-const deleteUser = `-- name: DeleteUser :exec
-DELETE FROM users WHERE id = $1
-`
-
-// Deletes a user
-func (q *Queries) DeleteUser(ctx context.Context, id int64) error {
-	_, err := q.db.Exec(ctx, deleteUser, id)
 	return err
 }
 
+const filterUsers = `-- name: FilterUsers :many
+SELECT id, name, email, password, type, sport_center_id, deleted FROM users
+WHERE
+  ($1::user_type[] IS NULL OR type = ANY($1)) AND
+  ($2::integer[] IS NULL OR sport_center_id = ANY($2)) AND
+  ($3::boolean IS NULL OR deleted = $3)
+`
+
+type FilterUsersParams struct {
+	Column1 []UserType
+	Column2 []int32
+	Column3 bool
+}
+
+// Filters users based on optional parameters (user type, sport center id, deleted)
+func (q *Queries) FilterUsers(ctx context.Context, arg FilterUsersParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, filterUsers, arg.Column1, arg.Column2, arg.Column3)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Email,
+			&i.Password,
+			&i.Type,
+			&i.SportCenterID,
+			&i.Deleted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUser = `-- name: GetUser :one
-SELECT id, name, email, password, type, sport_center_id FROM users WHERE id = $1
+SELECT id, name, email, password, type, sport_center_id, deleted FROM users WHERE id = $1
 `
 
 // Retrieves a user by ID
@@ -70,13 +104,13 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 		&i.Password,
 		&i.Type,
 		&i.SportCenterID,
+		&i.Deleted,
 	)
 	return i, err
 }
 
 const listUserByType = `-- name: ListUserByType :many
-SELECT id, name, email, password, type, sport_center_id FROM users
-WHERE type = $1
+SELECT id, name, email, password, type, sport_center_id, deleted FROM users WHERE type = $1
 `
 
 // Lists all users with a given type
@@ -96,6 +130,7 @@ func (q *Queries) ListUserByType(ctx context.Context, type_ UserType) ([]User, e
 			&i.Password,
 			&i.Type,
 			&i.SportCenterID,
+			&i.Deleted,
 		); err != nil {
 			return nil, err
 		}
@@ -108,7 +143,7 @@ func (q *Queries) ListUserByType(ctx context.Context, type_ UserType) ([]User, e
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, name, email, password, type, sport_center_id FROM users
+SELECT id, name, email, password, type, sport_center_id, deleted FROM users
 `
 
 // Lists all users
@@ -128,6 +163,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.Password,
 			&i.Type,
 			&i.SportCenterID,
+			&i.Deleted,
 		); err != nil {
 			return nil, err
 		}
@@ -139,9 +175,25 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 	return items, nil
 }
 
+const softDeleteUser = `-- name: SoftDeleteUser :exec
+UPDATE users SET deleted = true WHERE id = $1 AND deleted = false RETURNING id, name, email, password, type, sport_center_id, deleted
+`
+
+// Soft-deletes a user by setting its deleted tag to true
+func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, softDeleteUser, id)
+	return err
+}
+
 const updateUser = `-- name: UpdateUser :one
-UPDATE users SET name = $2, email = $3, password = $4, type = $5, sport_center_id = $6
-WHERE id = $1 RETURNING id, name, email, password, type, sport_center_id
+UPDATE users SET
+  name = COALESCE($2, name),
+  email = COALESCE($3, email),
+  password = COALESCE($4, password),
+  type = COALESCE($5, type),
+  sport_center_id = COALESCE($6, sport_center_id)
+WHERE id = $1
+RETURNING id, name, email, password, type, sport_center_id, deleted
 `
 
 type UpdateUserParams struct {
@@ -171,6 +223,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.Password,
 		&i.Type,
 		&i.SportCenterID,
+		&i.Deleted,
 	)
 	return i, err
 }

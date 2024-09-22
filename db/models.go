@@ -126,4 +126,5 @@ type User struct {
 	Password      string
 	Type          UserType
 	SportCenterID pgtype.Int4
+	Deleted       bool
 }

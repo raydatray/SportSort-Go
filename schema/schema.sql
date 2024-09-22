@@ -10,6 +10,7 @@ CREATE TABLE users (
   password VARCHAR NOT NULL,
   type USER_TYPE NOT NULL,
   sport_center_id INT,
+  deleted BOOL NOT NULL,
   FOREIGN KEY (sport_center_id) REFERENCES sport_centers(id)
 );
 
